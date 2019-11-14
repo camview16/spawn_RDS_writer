@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Fetch flag value to check the Cloudwatch ALARM trigger, 1=Run, 0=stop
+SPAWN_RDS_FLAG=$(cat $PWD/spawn_RDS_config | awk '{split($0,array,"=")} END{print array[2]}')
+
+if [ $SPAWN_RDS_FLAG -eq 1 ]
+then
+
+    live_rds_high_cpu_metric=XXXX
+    test_rds_high_cpu_metric=XXXX
+
+    # LIVE  =   1
+    # TEST  =   2
+
+    env=2
+    profile_name=AAAA
+
+    if [ $env -eq 2 ]
+    then
+        echo "TEST config set"
+        db_instance_metric_name=$test_rds_high_cpu_metric
+    elif [ $env -eq 1 ]
+    then
+        echo "LIVE config set"
+        db_instance_metric_name=$live_rds_high_cpu_metric
+    fi
+
+    # Check if CPU high metric is in ALARM or OK state to spawn the instance vertically
+    metric_status=$(/usr/local/bin/aws cloudwatch describe-alarms --alarm-names $db_instance_metric_name --profile $profile_name --query 'MetricAlarms[0].StateValue' --output text)
+
+    if [ "$metric_status" = "ALARM" ]
+    then
+        echo "NOT OK"
+        sed -i 's/SPAWN_RDS_FLAG=1/SPAWN_RDS_FLAG=0/g' $PWD/spawn_RDS_config
+        bash $PWD/spawn_RDS
+    elif [ "$metric_status" = "OK" ]
+    then
+        echo "ALL OK"
+    fi
+else
+    echo "FLAG is NOT SET"
+fi

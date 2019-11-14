@@ -1,0 +1,89 @@
+#!/bin/bash
+
+echo "--- Initiating RDS scale ---"
+
+live_rds_cluster_identifier=XXXX
+test_rds_cluster_identifier=XXXX
+
+# range of instance type that you want upscale, example array which will hold the necxt higher instance type that should be selected to upscale
+live_rds_instance_type_class=(db.r5.large db.r5.xlarge db.r5.2xlarge db.r5.4xlarge db.r5.12xlarge db.r5.24xlarge)
+test_rds_instance_type_class=(db.t2.micro db.t2.small db.t2.medium db.t2.large db.t2.xlarge db.t2.2xlarge)
+
+# LIVE  =   1
+# TEST  =   2
+
+env=1
+profile_name=AAAA
+
+if [ $env -eq 2 ]
+then
+    echo "TEST config set"
+    db_cluster_identifier=$test_rds_cluster_identifier
+    db_instance_type_list=("${test_rds_instance_type_class[@]}")
+elif [ $env -eq 1 ]
+then
+    echo "LIVE config set"
+    db_cluster_identifier=$live_rds_cluster_identifier
+    db_instance_type_list=("${live_rds_instance_type_class[@]}")
+fi
+
+echo "*** Extract writer from RDS Cluster ***"
+rds_writer=$(/usr/local/bin/aws rds describe-db-clusters --db-cluster-identifier $db_cluster_identifier --profile $profile_name --query 'DBClusters[0].DBClusterMembers[?IsClusterWriter==`true`].DBInstanceIdentifier' --output text)
+
+# Old RDS instance
+old_rds_writer=$rds_writer
+
+echo "RDS Writer is $rds_writer"
+
+echo "*** Extract current Writer Instance type ***"
+writer_instance_type=$(/usr/local/bin/aws rds describe-db-instances --db-instance-identifier $rds_writer --profile $profile_name --query 'DBInstances[0].DBInstanceClass' --output text)
+
+echo "Instance $rds_writer is $writer_instance_type"
+
+count=0
+new_instance_type=-1
+
+# Find instance type to upgrade to
+
+for item in ${db_instance_type_list[*]}
+do
+    if [ $item == $writer_instance_type ]
+    then
+        new_instance_type=$count
+    fi
+    ((count++))
+done
+
+echo $new_instance_type
+echo "*** Update Writer Instance type ***"
+
+if [ $new_instance_type -lt 5 ] && [ $new_instance_type -ge 0 ]
+then
+    echo "New instance type is ${db_instance_type_list[${new_instance_type}+1]}"
+    /usr/local/bin/aws rds modify-db-instance --db-instance-identifier $rds_writer --db-instance-class ${db_instance_type_list[${new_instance_type}+1]} --apply-immediately --profile $profile_name
+else
+    echo "New instance type is $writer_instance_type"
+    /usr/local/bin/aws rds modify-db-instance --db-instance-identifier $rds_writer --db-instance-class $writer_instance_type --apply-immediately --profile $profile_name
+fi
+
+# Wait to check if Writer has fallen behind to be the reader
+sleep 60
+while [ $(/usr/local/bin/aws rds describe-db-instances --db-instance-identifier $old_rds_writer --query 'DBInstances[0].DBInstanceStatus' --profile $profile_name --output text) != "available" ]
+do
+    echo "$old_rds_writer Not available..."
+    /usr/local/bin/aws rds describe-db-instances --db-instance-identifier $old_rds_writer --query 'DBInstances[0].DBInstanceStatus' --profile $profile_name --output text
+    sleep 30
+done
+
+# Check if RDS Writer instance is persistant
+if [ $(/usr/local/bin/aws rds describe-db-clusters --db-cluster-identifier $db_cluster_identifier --profile $profile_name --query "DBClusters[0].DBClusterMembers[?DBInstanceIdentifier=='$old_rds_writer'].IsClusterWriter" --output text) == "True" ]
+then
+    echo "Old Writer is persistant"
+else
+    echo "Changing changed writer to old one"
+    /usr/local/bin/aws rds failover-db-cluster --db-cluster-identifier $db_cluster_identifier --target-db-instance-identifier $old_rds_writer --profile $profile_name
+fi
+
+sleep 20
+
+sed -i 's/SPAWN_RDS_FLAG=0/SPAWN_RDS_FLAG=1/g' /home/amey-bidchat/scripts/spawn_RDS_config
