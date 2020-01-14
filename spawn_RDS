@@ -13,7 +13,7 @@ test_rds_instance_type_class=(db.t2.micro db.t2.small db.t2.medium db.t2.large d
 # TEST  =   2
 
 env=1
-profile_name=AAAA
+profile_name=default
 
 if [ $env -eq 2 ]
 then

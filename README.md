@@ -5,3 +5,7 @@ The two internal scripts of this code repository will eventually do two things, 
 
 Schedule the cron as follows :
 * * * * * /bin/sh check_RDS_metric_status >> /home/ubuntu/logs/spawn_RDS.log 2>&1 &
+
+*NOTE*
+
+Make sure to change the aws cli profile_name as required.
