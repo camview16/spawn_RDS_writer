@@ -86,4 +86,4 @@ fi
 
 sleep 20
 
-sed -i 's/SPAWN_RDS_FLAG=0/SPAWN_RDS_FLAG=1/g' /home/amey-bidchat/scripts/spawn_RDS_config
+sed -i 's/SPAWN_RDS_FLAG=0/SPAWN_RDS_FLAG=1/g' $PWD/spawn_RDS_config
